@@ -11,6 +11,11 @@
 
 set -euo pipefail
 
+# Git Bash rewrites arguments that look like absolute POSIX paths into Windows paths, which
+# silently corrupts every /sdcard/... argument handed to adb. Turn that off for this script.
+export MSYS_NO_PATHCONV=1
+export MSYS2_ARG_CONV_EXCL='*'
+
 ADB="${ADB:-/d/Android/sdk/platform-tools/adb.exe}"
 FFMPEG="${FFMPEG:-ffmpeg}"
 PKG=com.iykyk.collage
