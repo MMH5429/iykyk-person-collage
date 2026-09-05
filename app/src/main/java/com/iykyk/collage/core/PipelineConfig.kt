@@ -33,7 +33,17 @@ data class PipelineConfig(
     val minSharpness: Float = 0.06f,
     val minFrontality: Float = 0.35f,
     val minFaceSize: Float = 0.10f,
-    /** Allows a quarter of the face box off-frame; the weighted score still prefers whole faces. */
+    /**
+     * Allows a quarter of the face box off-frame.
+     *
+     * Relaxing this to 0.60 was tried and reverted. It does recover one more appearance in
+     * Sample 1 - the C+D two-shot at 20.2-21.6s, where both faces run past the frame edge -
+     * but a face that is 35% cropped does not embed reliably, so it forms its own singleton
+     * identity and Sample 1 resolves to six people instead of five. No threshold fixes it:
+     * at 0.60 the only tau giving five on Sample 1 is >= 0.64, where Samples 2 and 3
+     * collapse to four and three. Correct identity grouping is worth more than one extra
+     * appearance, so the stricter gate stays.
+     */
     val minCompleteness: Float = 0.75f,
 
     // --- Representative-shot weights (must sum to 1) --------------------

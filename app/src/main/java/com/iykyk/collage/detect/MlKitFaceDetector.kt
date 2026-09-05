@@ -107,7 +107,13 @@ class MlKitFaceDetector(private val config: PipelineConfig) {
     fun close() = detector.close()
 
     private companion object {
-        /** Faces smaller than this fraction of the frame are background, not subjects. */
+        /**
+         * Faces smaller than this fraction of the frame are background, not subjects.
+         *
+         * Lowering it to 0.05 was tried: it did not recover the one undetected face in
+         * Sample 1's second two-shot, and it added a spurious sixth identity, so the
+         * correct five-person answer was lost. 0.08 stays.
+         */
         const val MIN_FACE_SIZE = 0.08f
     }
 }

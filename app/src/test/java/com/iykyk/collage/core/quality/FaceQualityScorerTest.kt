@@ -68,10 +68,20 @@ class FaceQualityScorerTest {
     }
 
     @Test
-    fun `a face clipped by the frame edge scores low completeness`() {
-        val clipped = scorer.score(goodFace(box = BoxF(-60f, 400f, 140f, 600f)))
-        assertTrue(clipped.completeness < 0.75f)
-        assertFalse(scorer.isClearlyVisible(clipped))
+    fun `completeness measures how much of the face is inside the frame`() {
+        // 30% of the box hangs off the left edge.
+        val partly = scorer.score(goodFace(box = BoxF(-60f, 400f, 140f, 600f)))
+        assertEquals(0.7f, partly.completeness, 1e-3f)
+        // Below the 0.75 gate: a heavily cropped face does not embed reliably.
+        assertFalse(scorer.isClearlyVisible(partly))
+    }
+
+    @Test
+    fun `a face mostly outside the frame fails the visibility gate`() {
+        // Only 40% of the box is on screen.
+        val mostlyOff = scorer.score(goodFace(box = BoxF(-120f, 400f, 80f, 600f)))
+        assertEquals(0.4f, mostlyOff.completeness, 1e-3f)
+        assertFalse(scorer.isClearlyVisible(mostlyOff))
     }
 
     @Test

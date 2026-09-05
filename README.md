@@ -264,10 +264,28 @@ per-frame visibility timeline, and `CollageCaptureTest` renders the real collage
 
 ## Known limitations
 
-- **17 of 20 appearances on Sample 1.** The person count is right; three segments are not
-  recovered. They are ones where the face is never associated into a track that clears the
-  minimum-appearance gate. The next thing to try is a higher sampling rate around detected
-  gaps, or a lower `minVisibleDurationMs`.
+- **17 of 20 appearances on Sample 1.** The person count is exact; three segments are not.
+  This was traced rather than guessed. Comparing the per-frame visibility timeline against
+  the tracklet spans shows only **two** frames in the whole clip where a clearly-visible face
+  is not covered by some tracklet, and no tracklet spans more than 1.4 s, so nothing is being
+  merged or dropped by the association step. The shortfall is upstream, and splits two ways:
+
+  - **One face is never detected.** In the C+D two-shot at 20.2–21.6 s, ML Kit reports a
+    single face on every frame. Lowering `MIN_FACE_SIZE` from 0.08 to 0.05 did not surface
+    the second face and added a spurious sixth identity, so it was reverted.
+  - **One segment is deliberately gated out.** Both faces in that two-shot run past the frame
+    edge and score 0.656 completeness, under the 0.75 gate. Relaxing the gate to 0.60 does
+    recover the appearance — but a 35%-cropped face does not embed reliably, so it forms its
+    own singleton and Sample 1 resolves to six people. No threshold repairs it: at 0.60 the
+    only tau giving five on Sample 1 is >= 0.64, where Samples 2 and 3 collapse to four and
+    three. Correct identity grouping is worth more than one extra appearance, so this was
+    reverted too.
+
+  The honest next step is better detection rather than looser gates — `PERFORMANCE_MODE_ACCURATE`
+  does find both faces in two-shots, but costs ~150 s per clip instead of ~55 s, which is a
+  poor trade for the app's usability. A hybrid that re-runs ACCURATE only on frames where a
+  cut boundary suggests a missing subject would likely get the remaining appearances without
+  the cost.
 - A representative tile can still include a sliver of an adjacent face in tight two-shots.
   The crop excludes the neighbour's centre, but the tile is then centre-cropped to fill.
 - Identity is not tracked across different videos; each video is analysed independently.
