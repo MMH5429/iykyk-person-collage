@@ -9,6 +9,8 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Handler
+import android.os.HandlerThread
 import com.iykyk.collage.core.PipelineConfig
 import com.iykyk.collage.core.frame.PlaneData
 import com.iykyk.collage.core.frame.chooseStep
@@ -18,6 +20,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import java.nio.ByteBuffer
+import java.util.concurrent.BlockingQueue
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 
 /**
  * Decodes a video once, front to back, emitting one downsampled NV21 frame per sampling
@@ -52,6 +57,8 @@ class MediaCodecFrameSource(
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
         var reader: ImageReader? = null
+        var readerThread: HandlerThread? = null
+        val delivered: BlockingQueue<Image> = LinkedBlockingQueue()
 
         try {
             extractor.setDataSource(context, uri, null)
@@ -69,6 +76,11 @@ class MediaCodecFrameSource(
             val sampleIntervalUs = 1_000_000L / config.sampleFps
 
             reader = ImageReader.newInstance(rawWidth, rawHeight, ImageFormat.YUV_420_888, MAX_IMAGES)
+            readerThread = HandlerThread("frame-reader").apply { start() }
+            reader.setOnImageAvailableListener(
+                { r -> r.acquireNextImage()?.let { delivered.put(it) } },
+                Handler(readerThread.looper),
+            )
             codec = MediaCodec.createDecoderByType(format.getString(MediaFormat.KEY_MIME)!!)
             codec.configure(format, reader.surface, null, 0)
             codec.start()
@@ -105,7 +117,7 @@ class MediaCodecFrameSource(
 
                     if (wanted) {
                         nextSampleUs = presentationUs + sampleIntervalUs
-                        val nv21 = reader.awaitImage()?.use { image ->
+                        val nv21 = delivered.awaitImage()?.use { image ->
                             downsampleToNv21(
                                 y = image.planes[0].toPlaneData(),
                                 u = image.planes[1].toPlaneData(),
@@ -136,21 +148,22 @@ class MediaCodecFrameSource(
             runCatching { codec?.stop() }
             runCatching { codec?.release() }
             runCatching { reader?.close() }
+            runCatching { readerThread?.quitSafely() }
+            while (true) (delivered.poll() ?: break).close()
             runCatching { extractor.release() }
         }
     }.flowOn(Dispatchers.IO)
 
     /**
-     * Rendering to the reader's surface is asynchronous, so the image is not always ready
-     * the instant `releaseOutputBuffer` returns. Retry briefly rather than dropping frames.
+     * Blocks until the frame just rendered to the reader's surface actually arrives.
+     *
+     * An earlier version polled `acquireNextImage` and gave up after a fixed number of
+     * tries, which silently dropped frames whenever the device was busy — so which frames
+     * were analysed varied between runs, and with them the appearance counts. Waiting on
+     * the reader's own callback makes the decode deterministic.
      */
-    private fun ImageReader.awaitImage(): Image? {
-        repeat(ACQUIRE_ATTEMPTS) {
-            acquireNextImage()?.let { return it }
-            Thread.sleep(ACQUIRE_BACKOFF_MS)
-        }
-        return null
-    }
+    private fun BlockingQueue<Image>.awaitImage(): Image? =
+        poll(IMAGE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
 
     /** Copies a plane out of its direct buffer so it survives `Image.close()`. */
     private fun Image.Plane.toPlaneData(): PlaneData {
@@ -163,8 +176,7 @@ class MediaCodecFrameSource(
     private companion object {
         const val TIMEOUT_US = 10_000L
         const val MAX_IMAGES = 3
-        const val ACQUIRE_ATTEMPTS = 25
-        const val ACQUIRE_BACKOFF_MS = 2L
+        const val IMAGE_TIMEOUT_MS = 5_000L
         const val KEY_ROTATION = "rotation-degrees"
     }
 }

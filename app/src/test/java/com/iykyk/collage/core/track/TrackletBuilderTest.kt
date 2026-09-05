@@ -120,6 +120,27 @@ class TrackletBuilderTest {
     }
 
     @Test
+    fun `a scene cut ends an appearance even when the face stays in place`() {
+        // The montage case: a hard cut to a different person standing in the same spot.
+        // IoU alone would chain these into one long appearance.
+        // Each half must clear the minimum appearance duration, so four frames a side.
+        val cuts = listOf(false, false, false, false, true, false, false, false)
+        val result = builder.build(frames(
+            listOf(obs(0, left)), listOf(obs(1, left)), listOf(obs(2, left)), listOf(obs(3, left)),
+            listOf(obs(4, left)), listOf(obs(5, left)), listOf(obs(6, left)), listOf(obs(7, left)),
+        ), cuts)
+        assertEquals(2, result.size)
+    }
+
+    @Test
+    fun `no cut flags means association behaves as before`() {
+        val result = builder.build(frames(
+            listOf(obs(0, left)), listOf(obs(1, left)), listOf(obs(2, left)), listOf(obs(3, left)),
+        ), emptyList())
+        assertEquals(1, result.size)
+    }
+
+    @Test
     fun `a one frame flicker is not an appearance`() {
         val result = builder.build(frames(listOf(obs(0, left))))
         assertEquals(0, result.size)

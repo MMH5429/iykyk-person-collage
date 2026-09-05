@@ -6,3 +6,8 @@ local.properties
 .cxx/
 captures/
 .kotlin/
+collages/
+timeline.txt
+gate-diagnostics.txt
+ui.xml
+demo.mp4

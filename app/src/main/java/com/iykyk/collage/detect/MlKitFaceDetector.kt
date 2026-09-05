@@ -19,19 +19,27 @@ import java.nio.ByteBuffer
  * Wraps ML Kit face detection and turns each detected face into a plain [FaceObservation]
  * in upright coordinates.
  *
- * Tracking is enabled so the tracklet builder gets an extra association hint, but the
- * builder never depends on it: ML Kit reissues ids mid-appearance, so IoU association is
- * the real mechanism and the id is only a tie-breaker.
+ * Detection is stateless and reproducible: see the tracking note on the options below.
+ * Tracklets are formed downstream by IoU association, not by ML Kit's tracker.
  */
 class MlKitFaceDetector(private val config: PipelineConfig) {
 
     private val detector = FaceDetection.getClient(
         FaceDetectorOptions.Builder()
-            .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
+            // FAST rather than ACCURATE: with tracking off, every frame is a full detection,
+            // and ACCURATE cost ~150s per 30s clip on a 2018 device. The subjects here are
+            // large, frontal, foreground faces, which FAST handles well.
+            .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
             .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
             .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
             .setMinFaceSize(MIN_FACE_SIZE)
-            .enableTracking()
+            // Tracking is deliberately NOT enabled. It puts ML Kit into stateful stream
+            // mode, which is tuned for a live camera and adapts to CPU load by skipping
+            // work - so the same video analysed twice produced different detections, and
+            // the appearance count swung between 12 and 19 across runs of one clip.
+            // Without it each frame is processed independently and the result is
+            // reproducible. Nothing is lost: tracklets are built by IoU association, and
+            // the tracking id was only ever a tie-breaking bonus.
             .build()
     )
 
@@ -74,7 +82,10 @@ class MlKitFaceDetector(private val config: PipelineConfig) {
             frameIndex = frame.index,
             timestampMs = frame.timestampMs,
             trackingId = trackingId,
-            box = box.clampTo(uprightW, uprightH),
+            // Deliberately NOT clamped to the frame: how far the box extends past the edge
+            // is exactly what the completeness signal measures. Consumers that need pixel
+            // coordinates (crop extraction, sharpness regions) clamp for themselves.
+            box = box,
             leftEye = getLandmark(FaceLandmark.LEFT_EYE)?.position?.let { PointF2(it.x, it.y) },
             rightEye = getLandmark(FaceLandmark.RIGHT_EYE)?.position?.let { PointF2(it.x, it.y) },
             headEulerX = headEulerAngleX,

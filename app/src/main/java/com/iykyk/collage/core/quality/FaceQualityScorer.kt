@@ -68,25 +68,22 @@ class FaceQualityScorer(private val config: PipelineConfig) {
     }
 
     /**
-     * How much of the face box lies inside the frame, with an extra penalty for sitting
-     * right on the edge — a face touching the border is usually mid-exit and partly cut.
+     * The fraction of the face box that actually lies inside the frame.
+     *
+     * This relies on the detector handing over an *unclamped* box, so a face running off
+     * the edge genuinely scores below 1. An earlier version also applied a flat penalty to
+     * any box merely touching the border, but in portrait close-ups — where a face
+     * legitimately spans most of the frame — that fired on over half of all detections and
+     * threw away good data. Measuring the overlap directly is both honest and sufficient.
      */
     private fun completeness(obs: FaceObservation): Float {
         val frame = BoxF(0f, 0f, obs.frameWidth.toFloat(), obs.frameHeight.toFloat())
-        val visible = obs.box.intersect(frame)?.area ?: return 0f
         if (obs.box.area <= 0f) return 0f
-        val inside = (visible / obs.box.area).coerceIn(0f, 1f)
-
-        val margin = min(obs.frameWidth, obs.frameHeight) * config.edgeMarginFraction
-        val touchesEdge = obs.box.left <= margin ||
-            obs.box.top <= margin ||
-            obs.box.right >= obs.frameWidth - margin ||
-            obs.box.bottom >= obs.frameHeight - margin
-        return if (touchesEdge) inside * EDGE_PENALTY else inside
+        val visible = obs.box.intersect(frame)?.area ?: return 0f
+        return (visible / obs.box.area).coerceIn(0f, 1f)
     }
 
     private companion object {
         const val NEUTRAL = 0.5f
-        const val EDGE_PENALTY = 0.6f
     }
 }

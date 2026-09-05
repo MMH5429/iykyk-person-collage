@@ -26,6 +26,8 @@ data class TrackletRecord(
 data class AnalysisDump(
     val sourceName: String,
     val durationMs: Long,
+    /** Sampled frames actually analysed. Constant across runs iff decoding is stable. */
+    val framesAnalysed: Int = 0,
     val tracklets: List<TrackletRecord>,
     /** Index pairs that must not merge, as two-element lists. */
     val cannotLink: List<List<Int>>,

@@ -43,14 +43,27 @@ class TrackletBuilder(
 
     /**
      * @param observationsByFrame detections per sampled frame, in presentation order.
+     * @param sceneCuts per-frame flag: true when this frame begins a new shot. At a cut every
+     *   open track is closed, because a face appearing after an edit is a new appearance even
+     *   if it lands in the same part of the screen. Without this, IoU association happily
+     *   chains two different people across a hard cut into one six-second "appearance".
      * @return tracklets that qualify as appearances, ordered by when they became visible.
      */
-    fun build(observationsByFrame: List<List<FaceObservation>>): List<Tracklet> {
+    fun build(
+        observationsByFrame: List<List<FaceObservation>>,
+        sceneCuts: List<Boolean> = emptyList(),
+    ): List<Tracklet> {
         val open = mutableListOf<OpenTrack>()
         val closed = mutableListOf<OpenTrack>()
         var nextId = 0
 
-        for (frame in observationsByFrame) {
+        for ((frameIndex, frame) in observationsByFrame.withIndex()) {
+            // A cut ends every appearance in progress.
+            if (sceneCuts.getOrElse(frameIndex) { false }) {
+                closed += open
+                open.clear()
+            }
+
             val frameTime = frame.firstOrNull()?.timestampMs
 
             // Retire tracks that have been unseen for longer than the gap tolerance.
